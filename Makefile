@@ -1,8 +1,8 @@
 ASM=nasm
-ASMFLAGS=-f macho64
+ASMFLAGS=-f macho64 -g
 CC=clang
 LDFLAGS=-Wl,-no_pie -lc -lSystem
-CFLAGS=-Wall -Wextra -Wno-incompatible-library-redeclaration -nostdlib
+CFLAGS=-Wall -Wextra -Wno-incompatible-library-redeclaration -nostdlib -g
 
 LIBS=mac64io.o
 HEADERS=mac64io.h
