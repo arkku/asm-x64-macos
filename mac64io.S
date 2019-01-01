@@ -1,0 +1,325 @@
+BITS 64
+
+SECTION .data
+SECTALIGN 16
+
+STDIN   equ 0
+STDOUT  equ 1
+STDERR  equ 2
+
+; syscall number in RAX
+; Arguments in RDI, RSI, RDX
+
+%define unixsys(num) ((2<<24)|(num))
+
+SYS_write   equ unixsys(4)
+SYS_read    equ unixsys(3)
+SYS_exit    equ unixsys(1)
+
+SECTION .text
+
+global getchar, getln
+global putchar, print, puts, printi
+global parseint, parseuint, atoi, atou, atol, atoul
+global itodec
+global strlen, strcpy, strcmp, memcpy, memset
+
+global _getchar, _getln
+global _putchar, _print, _puts, _printi
+global _parseint, _parseuint, _atoi, _atou, _atol, _atoul
+global _strlen, _strcpy, _strcmp, _memcpy, _memset
+
+; Read a character from stdin, return it in EAX.
+; On error/EOF, returns negative.
+_getchar:
+getchar:
+        sub     rsp, 8                  ; align stack
+        mov     eax, SYS_read           ; syscall
+        mov     edi, STDIN              ; file
+        mov     rsi, rsp                ; buffer
+        mov     edx, 1                  ; length
+        syscall
+        add     rsp, 8                  ; restore rsp
+        cmp     eax, 0                  ; check for error/eof
+        je      .eof
+        jl      .error
+        movzx   eax, byte [rsp-8]       ; move from buffer to return value
+        ret
+.eof:   dec     rax
+.error: ret
+
+; Output the byte from DIL to stdout.
+_putchar:
+putchar:
+        sub     rsp, 8
+        mov     eax, SYS_write          ; syscall
+        mov     [rsp], dil              ; load argument into buffer
+        mov     edx, 1                  ; length
+        mov     rsi, rsp                ; buffer
+        mov     edi, STDOUT             ; file
+        syscall
+        add     rsp, 8
+        ret
+
+; Print string [RDI].
+_print:
+print:
+        push    rdi                     ; save argument
+        call    strlen                  ; determine length
+        mov     rdx, rax                ; move length into argument
+        pop     rdi                     ; restore original argument
+        mov     rsi, rdi                ; string
+        mov     edi, STDOUT             ; file
+.write: push    rdx                     ; save length
+        mov     eax, SYS_write          ; syscall
+        syscall
+        pop     rdx                     ; restore length
+        sub     rdx, rax                ; calculate unwritten length
+        jz      .done                   ; no more bytes to write
+        add     rsi, rax                ; increment pointer for next write
+        cmp     eax, 0                  ; check for error/EOF
+        jg      .write                  ; write more (FWIW, not sure if needed)
+        mov     eax, -1                 ; error
+.done:  ret
+
+; Print the integer in RDI to stdout in decimal.
+_printi:
+printi:
+        push    rbp                     ; save rbp + align stack
+        mov     rbp, rsp                ; save rsp
+        call    itodecs
+        mov     rsi, rax                ; move return value to argument
+        dec     edx                     ; subtract NUL terminator from length
+        and     rax, -16                ; align the stack
+        mov     edi, STDOUT             ; output file
+        mov     rsp, rax                ; grow stack to preserve string
+        mov     eax, SYS_write
+        syscall
+        mov     rsp, rbp                ; restore rsp
+        pop     rbp                     ; restore rbp
+        ret
+
+; Print string [RDI], followed by a newline.
+_puts:
+puts:
+        push    rbp
+        call    print
+        test    eax, eax
+        js      .done
+        mov     edi, 0Ah
+        call    putchar
+        pop     rbp
+.done:  ret
+
+; Convert a signed integer into a decimal string allocated
+; dynamically on the stack. The start address is returned in
+; RAX, and the length of the output (including NUL terminator)
+; is returned in RDX. Note that calling another function may
+; overwrite the string on the stack, unless RSP is first
+; advanced to at least `(RAX & -16)`.
+_itodecs:
+itodecs:
+        mov     rax, rdi                ; argument into rax
+        push    rbp                     ; save rbp
+        xor     edx, edx                ; limit to 64-bit (div uses 128-bit)
+        mov     rbp, rsp                ; save rsp
+        mov     esi, 10                 ; base (div needs a register as argument)
+
+        dec     rsp                     ; place output on the stack
+        mov     [rsp], byte 0           ; NUL terminator
+
+        test    rax, rax                ; check for sign
+        jns     .digit                  ; no sign
+        neg     rax                     ; remove sign (add to output later)
+
+.digit: dec     rsp                     ; "allocate" next byte
+        div     rsi                     ; divide by base
+        add     dl, '0'                 ; convert remainder to digit
+        mov     [rsp], dl               ; append digit to output
+        xor     edx, edx                ; clear remainder (for next division)
+        test    eax, eax                ; check if there are more digits
+        jnz     .digit
+
+        test    rdi, rdi                ; check original for sign
+        jns     .done                   ; no sign, done
+        dec     rsp
+        mov     [rsp], byte '-'         ; append sign to output
+
+.done:  mov     rax, rsp                ; return string
+        mov     rdx, rbp                ; start position
+        mov     rsp, rbp                ; restore rsp
+        sub     rdx, rax                ; end - start = length
+        pop     rbp                     ; restore rbp
+        ret
+
+; Parse decimal unsigned integer from the prefix of string [RDI].
+; Returns the integer in RAX and an end pointer in RDX.
+_parseuint:
+parseuint:
+        xor     eax, eax                ; result
+.read:  movzx   edx, byte [rdi]          ; get next character
+        sub     dl, '0'                 ; convert digit to its value
+        cmp     dl, 9                   ; check range
+        ja      .done                   ; not a digit
+        imul    rax, 10                 ; multiply previous result
+        inc     rdi                     ; advance pointer
+        add     rax, rdx                ; add this digit to least significant position
+        jmp     .read
+        mov     rdx, rdi                ; return end pointer
+.done:  ret
+
+; Parse a decimal signed integer from the prefix of string [RDI].
+; Returns the integer in RAX and an end pointer in RDX.
+_parseint:
+parseint:
+        xor     eax, eax                ; result
+        xor     ecx, ecx                ; sign (non-zero = negative)
+        movzx   edx, byte [rdi]         ; get the first character
+        cmp     dl, '-'                 ; check for leading minus
+        jne     .parse                  ; not a minus, parse as a digit
+        inc     rdi                     ; next byte
+        inc     cl                      ; save the negative sign for later
+.read:  movzx   edx, byte [rdi]         ; get next character
+.parse: sub     dl, '0'                 ; convert digit to its value
+        cmp     dl, 9                   ; check range
+        ja      .sign                   ; not a digit
+        imul    rax, 10                 ; multiply previous result
+        inc     rdi                     ; advance pointer
+        add     rax, rdx                ; add digit to least significant position
+        jmp     .read
+.sign:  test    cl, cl                  ; check for negative sign
+        jz      .done                   ; no sign
+        neg     rax                     ; apply negative sign
+.done:  mov     rdx, rdi                ; return end pointer
+        ret
+
+; Returns a pointer to the first non-space character in the string [RDI].
+; Uses no other registers except RDI and RAX, which will both contain the
+; return value on return.
+skipspace:
+        dec     rdi
+.next:  inc     rdi
+.read:  movzx   eax, byte [rdi]         ; read byte
+        cmp     eax, ' '                ; check for space
+        je      .next
+        sub     eax, 0Ah                ; check for newline
+        jz      .next
+        inc     eax                     ; check for tab
+        jz      .next
+.done:  mov     rax, rdi                ; return position
+        ret
+
+; Like `parseint`, but also skips leading whitespace and + sign.
+_atol:
+atol:
+_atoi:
+atoi:
+        push    rbp                     ; align stack
+        call    skipspace               ; skip any leading whitespace
+        movzx   eax, byte [rdi]
+        cmp     eax, '+'                ; check for + sign
+        jne     .parse
+        inc     rdi                     ; skip + sign
+.parse: call    parseint
+        pop     rbp                     ; restore stack
+        ret
+
+; Like `parseuint`, but also skips leading whitespace.
+_atoul:
+atoul:
+_atou:
+atou:
+        push    rbp                     ; align stack
+        call    skipspace               ; skip any leading whitespace
+        call    parseuint
+        pop     rbp                     ; restore stack
+
+; Find the length of the NUL-terminated string [RDI].
+_strlen:
+strlen:
+        xor     ecx, ecx                ; ecx = 0
+        xor     eax, eax                ; look for zero byte
+        cld                             ; clear direction
+        not     rcx                     ; rcx = (unsigned) -1
+        repne scasb                     ; scan [edi] until zero (eax), count backwards in ecx
+        mov     rax, rcx                ; rax = (-1 - len - 1)
+        inc     rax                     ; -> -1 - len
+        not     rax                     ; -> len
+        ret
+
+; Copy the NUL-terminated string from [RSI] to [RDI].
+_strcpy:
+strcpy:
+        cld
+        push    rdi                     ; save destination pointer
+.copy:  lodsb                           ; al = [rsi++]
+        test    al, al                  ; check for end
+        stosb                           ; [rdi++] = al
+        jnz     .copy                   ; repeat until NUL
+        pop     rax                     ; return destination pointer
+        ret
+
+; Copy RDX bytes from [RSI] to [RDI].
+_memcpy:
+memcpy:
+        push    rdi                     ; save destination pointer
+        cld
+        mov     rcx, rdx                ; move length argument
+        rep movsd                       ; copy RCX bytes
+        pop     rax                     ; return destination pointer
+        ret
+
+; Set RDX bytes in [RDI] to SIL.
+_memset:
+memset:
+        push    rdi                     ; save destination pointer
+        cld
+        mov     rcx, rdx                ; move length argument
+        mov     eax, esi                ; move byte argument
+        rep stosb
+        pop     rax                     ; return destination pointer
+        ret
+
+; Compare the strings [RDI] and [RSI], return negative, zero, or
+; positive when [RDI] is less than, equal, or greater than [RSI].
+_strcmp:
+strcmp:
+.next:  movzx   eax, byte [rdi]         ; load byte from 1st string
+        movzx   ecx, byte [rsi]         ; load byte from 2nd string
+        inc     rdi                     ; ++rdi
+        inc     rsi                     ; ++rsi
+        sub     eax, ecx                ; calculate difference at this point
+        jnz     .done                   ; end if different
+        test    cl, cl                  ; check for NUL terminator
+        jnz     .next                   ; continue if the strings didn't end
+.done:  movsx   rax, eax                ; sign-extend result for convenience
+        ret
+
+; Read at most EDI - 1 bytes from stdin into [RSI], but at most up to
+; the first newline character. Returns a pointer to the start of the
+; NUL-terminated string, or NULL if nothing was read, in RAX, and a
+; a pointer to the terminating NUL byte in RDX.
+_getln:
+getln:
+        mov     ebx, edi                ; buffer size
+        push    rsi                     ; save start position
+        dec     ebx                     ; leave room for NUL terminator
+        mov     edi, STDIN              ; file
+.getch: dec     ebx                     ; decrement remaining buffer size
+        js      .done
+        mov     edx, 1                  ; length
+        mov     eax, SYS_read           ; syscall
+        syscall
+        cmp     eax, 0                  ; check read success
+        jle     .done
+        movzx   eax, byte [rsi]          ; the byte just read
+        inc     rsi                     ; increment buffer
+        cmp     al, 0Ah                 ; test for newline
+        jne     .getch
+.done:  mov     [rsi], byte 0           ; NUL terminator
+        mov     rdx, rsi                ; return end pointer
+        pop     rax                     ; return ptr to start
+        cmp     rax, rsi                ; check if anything was read
+        jne     .end
+        xor     eax, eax                ; return NULL if nothing was read
+ .end:  ret
