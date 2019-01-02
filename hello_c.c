@@ -18,14 +18,16 @@ int main(int argc, char *argv[]) {
         putchar('\n');
     }
 
-    #define upper_bound 11
+    #define upper_bound 6
 
     print("Testing randuniform(");
     printi(upper_bound);
     print(")...\n");
 
+    srand(11);
+
     int64_t count[upper_bound] = { 0 };
-    for (int64_t i = 10000000; i; --i) {
+    for (int64_t i = 100000000; i; --i) {
         uint64_t x = randuniform(upper_bound);
         count[x]++;
     }

@@ -343,22 +343,27 @@ global rand, rand64, srand, randuniform
 global _rand, _rand64, _srand, _randuniform
 
 ; Generate a 64-bit random number.
+; This is a xorshift64* generator, which should be considerably faster
+; and better than a typical C standard library PRNG, while not being
+; super-sensitive to the quality of seeding.
 _rand64:
 rand64:
-        mov     rax, [rel randstate]
+        mov     rax, [rel randstate]            ; x = state
         mov     rdx, rax
         shr     rdx, 12
-        xor     rax, rdx
+        xor     rax, rdx                        ; x = x >> 12
         shl     rax, 25
-        xor     rdx, rax
+        xor     rdx, rax                        ; x = x << 25
         shr     rdx, 27
-        xor     rax, rdx
-        mov     [rel randstate], rax
+        xor     rax, rdx                        ; x = x >> 27
+        mov     [rel randstate], rax            ; save state
         mov     rdx, randmult
-        mul     rdx
+        mul     rdx                             ; x * randmult
         ret
 
 ; Generate a 30-bit random number.
+; This is done by discarding the lower bits of `rand64`,
+; which should in fact improve the quality of randomness.
 _rand:
 rand:
         call    rand64                  ; generate 64-bit random number
@@ -366,35 +371,39 @@ rand:
         ret
 
 ; Generate a uniform random number in [0, RDI).
+; This is done by "re-rolling" `rand64` until the result is in
+; the maximal range divisible by the upper bound.
 _randuniform:
 randuniform:
-        push    rbp
-        xor     eax, eax
-        push    rbx
-        not     rax                     ; rax = MAX
+        mov     rax, rdi                ; rax = n (upper bound)
         xor     edx, edx                ; don't do 128-bit division
-        mov     rbp, rax                ; rbp = MAX
-        div     rdi                     ; rdx = MAX % n
-        mov     rbx, rdi                ; rbx = n
-        sub     rbp, rdx                ; rbp = MAX - (MAX % n)
-        sub     rsp, 8                  ; align stack
-.rand:  call    rand64
+        push    rbp                     ; use rbp to save the min value
+        cmp     rax, 1                  ; check for invalid values
+        jbe     .done                   ; return 0 if n <= 1
+        neg     rax                     ; rax = -n
+        sub     rsp, 16                 ; allocate space + align
+        div     rdi                     ; rdx = -n % n
+        mov     [rsp+8], rdi            ; [rsp+8] = n
+        mov     rbp, rdx                ; rbp = (MAX - n) % n
+.rand:  call    rand64                  ; rax = rand64()
         cmp     rax, rbp                ; avoid modulo bias
-        jae     .rand                   ; re-roll
+        jb      .rand                   ; re-roll if rax < ((MAX - n) % n)
+        mov     rcx, [rsp+8]            ; rcx = n
         xor     edx, edx                ; don't do 128-bit division
-        div     rbx                     ; divide by n
-        mov     rax, rdx                ; return the remainder
-        add     rsp, 8                  ; restore stack
-        pop     rbx
-        pop     rbp
+        div     rcx                     ; divide by n
+        add     rsp, 16                 ; restore stack
+ .done: mov     rax, rdx                ; return the remainder (% n)
+        pop     rbp                     ; restore rbp
         ret
 
 ; Seed the random number generator.
 _srand:
 srand:
-        mov     rax, randmult
+        mov     rax, randmult           ; multiply seed to increase bit count
         mul     rdi
         mov     rdx, randseed
-        xor     rax, rdx
-        mov     [rel randstate], rax
+        xor     rax, rdx                ; xor with the default seed
+        jnz     .done                   ; check for zero
+        mov     rax, rdx                ; use default seed if zero
+.done:  mov     [rel randstate], rax
         ret
