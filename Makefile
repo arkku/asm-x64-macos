@@ -1,7 +1,7 @@
 ASM=nasm
 ASMFLAGS=-f macho64 -g
 CC=clang
-LDFLAGS=-lc -lSystem
+LDFLAGS=-lSystem
 CFLAGS=-Wall -Wextra -Wno-incompatible-library-redeclaration -nostdlib -g
 
 LIBS=kkasm.o
