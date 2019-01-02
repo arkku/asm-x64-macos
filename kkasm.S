@@ -339,11 +339,11 @@ rand64:
         mov     rax, [rel randstate]            ; x = state
         mov     rdx, rax
         shr     rdx, 12
-        xor     rax, rdx                        ; x = x >> 12
+        xor     rax, rdx                        ; x ^= x >> 12
         shl     rax, 25
-        xor     rdx, rax                        ; x = x << 25
+        xor     rdx, rax                        ; x ^= x << 25
         shr     rdx, 27
-        xor     rax, rdx                        ; x = x >> 27
+        xor     rax, rdx                        ; x ^= x >> 27
         mov     [rel randstate], rax            ; save state
         mov     rdx, randmult
         mul     rdx                             ; x * randmult
