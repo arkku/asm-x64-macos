@@ -27,15 +27,14 @@ randstate:  dq randseed
 
 SECTION .text
 
-global getchar, getln
-global putchar, print, puts, printi
-
-global _getchar, _getln
-global _putchar, _print, _puts, _printi
+%macro export_function 1
+global %1, _%1
+_%1:
+%endmacro
 
 ; Read a character from stdin, return it in EAX.
 ; On error/EOF, returns negative.
-_getchar:
+export_function getchar
 getchar:
         sub     rsp, 8                  ; align stack
         mov     eax, SYS_read           ; syscall
@@ -53,7 +52,7 @@ getchar:
 .error: ret
 
 ; Output the byte from DIL to stdout.
-_putchar:
+export_function putchar
 putchar:
         sub     rsp, 8
         mov     eax, SYS_write          ; syscall
@@ -66,7 +65,7 @@ putchar:
         ret
 
 ; Print string [RDI].
-_print:
+export_function print
 print:
         push    rdi                     ; save argument
         call    strlen                  ; determine length
@@ -87,7 +86,7 @@ print:
 .done:  ret
 
 ; Print the integer in RDI to stdout in decimal.
-_printi:
+export_function printi
 printi:
         push    rbp                     ; save rbp + align stack
         mov     rbp, rsp                ; save rsp
@@ -104,7 +103,7 @@ printi:
         ret
 
 ; Print string [RDI], followed by a newline.
-_puts:
+export_function puts
 puts:
         push    rbp
         call    print
@@ -119,7 +118,7 @@ puts:
 ; the first newline character. Returns a pointer to the start of the
 ; NUL-terminated string, or NULL if nothing was read, in RAX, and a
 ; a pointer to the terminating NUL byte in RDX.
-_getln:
+export_function getln
 getln:
         mov     ebx, edi                ; buffer size
         push    rsi                     ; save start position
@@ -146,20 +145,13 @@ getln:
 
 ;; STRING
 
-global parseint, parseuint, atoi, atou, atol, atoul
-global itodec
-global strlen, strcpy, strcmp, memcpy, memset
-
-global _parseint, _parseuint, _atoi, _atou, _atol, _atoul
-global _strlen, _strcpy, _strcmp, _memcpy, _memset
-
 ; Convert a signed integer into a decimal string allocated
 ; dynamically on the stack. The start address is returned in
 ; RAX, and the length of the output (including NUL terminator)
 ; is returned in RDX. Note that calling another function may
 ; overwrite the string on the stack, unless RSP is first
 ; advanced to at least `(RAX & -16)`.
-_itodecs:
+global itodecs
 itodecs:
         mov     rax, rdi                ; argument into rax
         push    rbp                     ; save rbp
@@ -196,7 +188,7 @@ itodecs:
 
 ; Parse decimal unsigned integer from the prefix of string [RDI].
 ; Returns the integer in RAX and an end pointer in RDX.
-_parseuint:
+export_function parseuint
 parseuint:
         xor     eax, eax                ; result
 .read:  movzx   edx, byte [rdi]          ; get next character
@@ -212,7 +204,7 @@ parseuint:
 
 ; Parse a decimal signed integer from the prefix of string [RDI].
 ; Returns the integer in RAX and an end pointer in RDX.
-_parseint:
+export_function parseint
 parseint:
         xor     eax, eax                ; result
         xor     ecx, ecx                ; sign (non-zero = negative)
@@ -238,6 +230,7 @@ parseint:
 ; Returns a pointer to the first non-space character in the string [RDI].
 ; Uses no other registers except RDI and RAX, which will both contain the
 ; return value on return.
+global skipspace
 skipspace:
         dec     rdi
 .next:  inc     rdi
@@ -252,9 +245,8 @@ skipspace:
         ret
 
 ; Like `parseint`, but also skips leading whitespace and + sign.
-_atol:
-atol:
-_atoi:
+export_function atol
+export_function atoi
 atoi:
         push    rbp                     ; align stack
         call    skipspace               ; skip any leading whitespace
@@ -267,9 +259,8 @@ atoi:
         ret
 
 ; Like `parseuint`, but also skips leading whitespace.
-_atoul:
-atoul:
-_atou:
+export_function atoul
+export_function atou
 atou:
         push    rbp                     ; align stack
         call    skipspace               ; skip any leading whitespace
@@ -277,7 +268,7 @@ atou:
         pop     rbp                     ; restore stack
 
 ; Find the length of the NUL-terminated string [RDI].
-_strlen:
+export_function strlen
 strlen:
         xor     ecx, ecx                ; ecx = 0
         xor     eax, eax                ; look for zero byte
@@ -290,7 +281,7 @@ strlen:
         ret
 
 ; Copy the NUL-terminated string from [RSI] to [RDI].
-_strcpy:
+export_function strcpy
 strcpy:
         cld
         push    rdi                     ; save destination pointer
@@ -302,7 +293,7 @@ strcpy:
         ret
 
 ; Copy RDX bytes from [RSI] to [RDI].
-_memcpy:
+export_function memcpy
 memcpy:
         push    rdi                     ; save destination pointer
         cld
@@ -312,7 +303,7 @@ memcpy:
         ret
 
 ; Set RDX bytes in [RDI] to SIL.
-_memset:
+export_function memset
 memset:
         push    rdi                     ; save destination pointer
         cld
@@ -324,7 +315,7 @@ memset:
 
 ; Compare the strings [RDI] and [RSI], return negative, zero, or
 ; positive when [RDI] is less than, equal, or greater than [RSI].
-_strcmp:
+export_function strcmp
 strcmp:
 .next:  movzx   eax, byte [rdi]         ; load byte from 1st string
         movzx   ecx, byte [rsi]         ; load byte from 2nd string
@@ -339,14 +330,11 @@ strcmp:
 
 ;; STDLIB
 
-global rand, rand64, srand, randuniform
-global _rand, _rand64, _srand, _randuniform
-
 ; Generate a 64-bit random number.
 ; This is a xorshift64* generator, which should be considerably faster
 ; and better than a typical C standard library PRNG, while not being
 ; super-sensitive to the quality of seeding.
-_rand64:
+export_function rand64
 rand64:
         mov     rax, [rel randstate]            ; x = state
         mov     rdx, rax
@@ -364,7 +352,7 @@ rand64:
 ; Generate a 30-bit random number.
 ; This is done by discarding the lower bits of `rand64`,
 ; which should in fact improve the quality of randomness.
-_rand:
+export_function rand
 rand:
         call    rand64                  ; generate 64-bit random number
         shr     rax, 34                 ; truncate to 30 bits
@@ -373,7 +361,7 @@ rand:
 ; Generate a uniform random number in [0, RDI).
 ; This is done by "re-rolling" `rand64` until the result is in
 ; the maximal range divisible by the upper bound.
-_randuniform:
+export_function randuniform
 randuniform:
         mov     rax, rdi                ; rax = n (upper bound)
         xor     edx, edx                ; don't do 128-bit division
@@ -397,7 +385,7 @@ randuniform:
         ret
 
 ; Seed the random number generator.
-_srand:
+export_function srand
 srand:
         mov     rax, randmult           ; multiply seed to increase bit count
         mul     rdi

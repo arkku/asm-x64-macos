@@ -8,12 +8,12 @@
 ; Overwrites RAX (return value), RCX and R11
 
 ; Align stack to 16 and restore without using additional registers
-%macro align16_prologue
+%macro align16_prologue 0
     push    rsp
     push    [rsp]
     and     rsp, -16
 %endmacro
 
-%macro align16_epilogue
+%macro align16_epilogue 0
     mov     rsp, [rsp+8]
 %endmacro
