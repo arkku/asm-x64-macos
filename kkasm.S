@@ -346,7 +346,7 @@ rand64:
         xor     rax, rdx                        ; x ^= x >> 27
         mov     [rel randstate], rax            ; save state
         mov     rdx, randmult
-        mul     rdx                             ; x * randmult
+        imul    rax, rdx                        ; x * randmult
         ret
 
 ; Generate a 30-bit random number.
@@ -388,7 +388,7 @@ randuniform:
 export_function srand
 srand:
         mov     rax, randmult           ; multiply seed to increase bit count
-        mul     rdi
+        imul    rax, rdi
         mov     rdx, randseed
         xor     rax, rdx                ; xor with the default seed
         jnz     .done                   ; check for zero
