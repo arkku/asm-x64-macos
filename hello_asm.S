@@ -9,7 +9,6 @@ msg: db      "Hello, world!", 0Ah, 00h
 printf_int: db    "%ld", 0Ah, 00h
 
 SECTION .text
-SECTALIGN 16
 
 global _main
 extern print, putchar, getln, memcpy, strcpy, strcmp, printi, strlen

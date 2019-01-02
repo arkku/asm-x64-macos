@@ -6,7 +6,6 @@ SECTALIGN 16
 alphalen equ ('z' - 'a') + 1
 
 SECTION .text
-SECTALIGN 16
 
 global _main
 extern getchar, putchar, atoi

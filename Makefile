@@ -1,11 +1,11 @@
 ASM=nasm
 ASMFLAGS=-f macho64 -g
 CC=clang
-LDFLAGS=-Wl,-no_pie -lc -lSystem
+LDFLAGS=-lc -lSystem
 CFLAGS=-Wall -Wextra -Wno-incompatible-library-redeclaration -nostdlib -g
 
-LIBS=mac64io.o
-HEADERS=mac64io.h
+LIBS=kkasm.o
+HEADERS=kkasm.h
 CBINS=hello_c
 
 ASMSRC=$(wildcard *.S)
@@ -31,7 +31,7 @@ $(CBINS): %: %.o $(LIBS)
 %: %.o $(LIBS)
 	$(CC) $< -o $@ $(LIBS) $(LDFLAGS)
 
-.PHONY: clean
+.PHONY: all clean
 
 clean:
 	rm -f $(BIN) $(OBJS)

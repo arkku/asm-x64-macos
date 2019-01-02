@@ -16,18 +16,22 @@ SYS_write   equ unixsys(4)
 SYS_read    equ unixsys(3)
 SYS_exit    equ unixsys(1)
 
+randseed    equ 17044589709537312451
+randmult    equ 2685821657736338717
+
+RAND_MAX    equ 0x3fffffff
+
+randstate:  dq randseed
+
+;; IO
+
 SECTION .text
 
 global getchar, getln
 global putchar, print, puts, printi
-global parseint, parseuint, atoi, atou, atol, atoul
-global itodec
-global strlen, strcpy, strcmp, memcpy, memset
 
 global _getchar, _getln
 global _putchar, _print, _puts, _printi
-global _parseint, _parseuint, _atoi, _atou, _atol, _atoul
-global _strlen, _strcpy, _strcmp, _memcpy, _memset
 
 ; Read a character from stdin, return it in EAX.
 ; On error/EOF, returns negative.
@@ -110,6 +114,44 @@ puts:
         call    putchar
         pop     rbp
 .done:  ret
+
+; Read at most EDI - 1 bytes from stdin into [RSI], but at most up to
+; the first newline character. Returns a pointer to the start of the
+; NUL-terminated string, or NULL if nothing was read, in RAX, and a
+; a pointer to the terminating NUL byte in RDX.
+_getln:
+getln:
+        mov     ebx, edi                ; buffer size
+        push    rsi                     ; save start position
+        dec     ebx                     ; leave room for NUL terminator
+        mov     edi, STDIN              ; file
+.getch: dec     ebx                     ; decrement remaining buffer size
+        js      .done
+        mov     edx, 1                  ; length
+        mov     eax, SYS_read           ; syscall
+        syscall
+        cmp     eax, 0                  ; check read success
+        jle     .done
+        movzx   eax, byte [rsi]          ; the byte just read
+        inc     rsi                     ; increment buffer
+        cmp     al, 0Ah                 ; test for newline
+        jne     .getch
+.done:  mov     [rsi], byte 0           ; NUL terminator
+        mov     rdx, rsi                ; return end pointer
+        pop     rax                     ; return ptr to start
+        cmp     rax, rsi                ; check if anything was read
+        jne     .end
+        xor     eax, eax                ; return NULL if nothing was read
+ .end:  ret
+
+;; STRING
+
+global parseint, parseuint, atoi, atou, atol, atoul
+global itodec
+global strlen, strcpy, strcmp, memcpy, memset
+
+global _parseint, _parseuint, _atoi, _atou, _atol, _atoul
+global _strlen, _strcpy, _strcmp, _memcpy, _memset
 
 ; Convert a signed integer into a decimal string allocated
 ; dynamically on the stack. The start address is returned in
@@ -295,31 +337,64 @@ strcmp:
 .done:  movsx   rax, eax                ; sign-extend result for convenience
         ret
 
-; Read at most EDI - 1 bytes from stdin into [RSI], but at most up to
-; the first newline character. Returns a pointer to the start of the
-; NUL-terminated string, or NULL if nothing was read, in RAX, and a
-; a pointer to the terminating NUL byte in RDX.
-_getln:
-getln:
-        mov     ebx, edi                ; buffer size
-        push    rsi                     ; save start position
-        dec     ebx                     ; leave room for NUL terminator
-        mov     edi, STDIN              ; file
-.getch: dec     ebx                     ; decrement remaining buffer size
-        js      .done
-        mov     edx, 1                  ; length
-        mov     eax, SYS_read           ; syscall
-        syscall
-        cmp     eax, 0                  ; check read success
-        jle     .done
-        movzx   eax, byte [rsi]          ; the byte just read
-        inc     rsi                     ; increment buffer
-        cmp     al, 0Ah                 ; test for newline
-        jne     .getch
-.done:  mov     [rsi], byte 0           ; NUL terminator
-        mov     rdx, rsi                ; return end pointer
-        pop     rax                     ; return ptr to start
-        cmp     rax, rsi                ; check if anything was read
-        jne     .end
-        xor     eax, eax                ; return NULL if nothing was read
- .end:  ret
+;; STDLIB
+
+global rand, rand64, srand, randuniform
+global _rand, _rand64, _srand, _randuniform
+
+; Generate a 64-bit random number.
+_rand64:
+rand64:
+        mov     rax, [rel randstate]
+        mov     rdx, rax
+        shr     rdx, 12
+        xor     rax, rdx
+        shl     rax, 25
+        xor     rdx, rax
+        shr     rdx, 27
+        xor     rax, rdx
+        mov     [rel randstate], rax
+        mov     rdx, randmult
+        mul     rdx
+        ret
+
+; Generate a 30-bit random number.
+_rand:
+rand:
+        call    rand64                  ; generate 64-bit random number
+        shr     rax, 34                 ; truncate to 30 bits
+        ret
+
+; Generate a uniform random number in [0, RDI).
+_randuniform:
+randuniform:
+        push    rbp
+        xor     eax, eax
+        push    rbx
+        not     rax                     ; rax = MAX
+        xor     edx, edx                ; don't do 128-bit division
+        mov     rbp, rax                ; rbp = MAX
+        div     rdi                     ; rdx = MAX % n
+        mov     rbx, rdi                ; rbx = n
+        sub     rbp, rdx                ; rbp = MAX - (MAX % n)
+        sub     rsp, 8                  ; align stack
+.rand:  call    rand64
+        cmp     rax, rbp                ; avoid modulo bias
+        jae     .rand                   ; re-roll
+        xor     edx, edx                ; don't do 128-bit division
+        div     rbx                     ; divide by n
+        mov     rax, rdx                ; return the remainder
+        add     rsp, 8                  ; restore stack
+        pop     rbx
+        pop     rbp
+        ret
+
+; Seed the random number generator.
+_srand:
+srand:
+        mov     rax, randmult
+        mul     rdi
+        mov     rdx, randseed
+        xor     rax, rdx
+        mov     [rel randstate], rax
+        ret

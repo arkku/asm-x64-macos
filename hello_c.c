@@ -1,4 +1,4 @@
-#include "mac64io.h"
+#include "kkasm.h"
 
 int main(int argc, char *argv[]) {
     print("Hello from C!\n");
@@ -17,5 +17,25 @@ int main(int argc, char *argv[]) {
         }
         putchar('\n');
     }
+
+    #define upper_bound 11
+
+    print("Testing randuniform(");
+    printi(upper_bound);
+    print(")...\n");
+
+    int64_t count[upper_bound] = { 0 };
+    for (int64_t i = 10000000; i; --i) {
+        uint64_t x = randuniform(upper_bound);
+        count[x]++;
+    }
+    for (int64_t i = 0; i < upper_bound; ++i) {
+        print("count[");
+        printi(i);
+        print("] = ");
+        printi(count[i]);
+        putchar('\n');
+    }
+
     return 0;
 }
